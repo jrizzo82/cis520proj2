@@ -41,11 +41,20 @@ process_execute (const char *file_name)
   /*Create a new string that contains soley the program name.*/ 
   char* save_ptr;
   char* name = strtok_r((char*)file_name, " ", &save_ptr);
+
+  /* Ensure that we weren't passed a NULL command line string (all spaces, for examples). */
+  if (name == NULL)
+  {
+      return -1;
+  }
   
   /* Create a new thread to execute FILE_NAME. */
   tid = thread_create (name, PRI_DEFAULT, start_process, fn_copy);
+
   if (tid == TID_ERROR)
-    palloc_free_page (fn_copy);
+  {
+      palloc_free_page(fn_copy);
+  }
   return tid;
 }
 
@@ -92,10 +101,10 @@ start_process (void *file_name_)
 int
 process_wait (tid_t child_tid UNUSED)
 {
-    while (true)
+    /*while (true)
     {
 
-    }
+    }*/
     return -1;
 }
 
