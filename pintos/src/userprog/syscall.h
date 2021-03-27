@@ -39,14 +39,14 @@ void close (int fd);
 void check_valid_addr (const void *ptr);
 
 /* Checks the passed-in buffer to ensure that each memory address is in valid user space. */
-void check_buffer (void *buff, unsigned size);
+void check_buffer (const void *buff, unsigned size);
 struct child_process* find_child_process (int pid);
 void remove_child_process (struct child_process *child);
 void remove_all_child_processes (void);
 
 /*Different ways to handle files*/
 int add_file (struct file *file_name);
-int syscall_filesize(int filedes);
-struct file* get_file(int filedes);
+int filesize(int fd);
+struct file* get_file(int fd);
 
 #endif /* userprog/syscall.h */
