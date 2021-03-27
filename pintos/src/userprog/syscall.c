@@ -362,7 +362,7 @@ void get_stack_arguments (struct intr_frame *f, int *args, int num_of_args)
   }
 }
 
-/* checks whether an addr is within the valid user range */
+// checks whether an addr is within the valid user range
 void check_valid_addr (const void *ptr)
 {
   if (!is_user_vaddr(ptr) || ptr == NULL || ptr < (void *) 0x08048000) //as specified in 1.4.1 where code segment begins growing
@@ -371,13 +371,13 @@ void check_valid_addr (const void *ptr)
   }
 }
 
-/* function to check if string is valid */
+// checks whether a given string is valid
 void check_str (const void* str)
 {
     for (; * (char *) getpage_ptr(str) != 0; str = (char *) str + 1);
 }
 
-/* function to check if buffer is valid */
+// checks whether a buffer ends up outside valid addr range
 void check_buffer(const void* buf, unsigned size)
 {
   unsigned i;
@@ -389,7 +389,7 @@ void check_buffer(const void* buf, unsigned size)
   }
 }
 
-
+//gets a pointer to the page for the given vaddr
 int get_page_ptr(const void *vaddr)
 {
   void *page_ptr = pagedir_get_page(thread_current()->pagedir, vaddr);
@@ -401,7 +401,7 @@ int get_page_ptr(const void *vaddr)
 }
 
 
-/* finds a child with the given pid */
+// Finds a child process for the current thread with the given pid
 struct child_process* find_child_process(int pid)
 {
   struct thread *t = thread_current();
@@ -420,15 +420,14 @@ struct child_process* find_child_process(int pid)
   return NULL;
 }
 
-/* remove a specific child process and frees allocated space*/
-void
-remove_child_process (struct child_process *cp)
+//removes a child process and frees space it occupied
+void remove_child_process (struct child_process *cp)
 {
   list_remove(&cp->elem);
   free(cp);
 }
 
-/* Same as above but for allll child processes */
+// Same as above but for allll child processes 
 void remove_all_child_processes (void) 
 {
   struct thread *t = thread_current();
@@ -444,9 +443,8 @@ void remove_all_child_processes (void)
   }
 }
 
-/* add file to file list and return file descriptor of added file*/
-int
-add_file (struct file *file_name)
+//adds a file to list and returns descriptor value
+int add_file (struct file *file_name)
 {
   //allocates space for the file and returns -1 for error if failed.
   struct process_file *process_file_ptr = malloc(sizeof(struct process_file));
@@ -462,9 +460,8 @@ add_file (struct file *file_name)
   
 }
 
-/* get file that matches file descriptor */
-struct file*
-get_file (int file_descriptor)
+//returns the file with the given file descriptor if exists
+struct file* get_file (int fd)
 {
   struct thread *t = thread_current();
   struct list_elem* next;
@@ -474,7 +471,7 @@ get_file (int file_descriptor)
   {
     next = list_next(e);
     struct process_file *process_file_ptr = list_entry(e, struct process_file, elem);
-    if (file_descriptor == process_file_ptr->fd)
+    if (fd == process_file_ptr->fd)
     {
       return process_file_ptr->file;
     }
@@ -482,7 +479,7 @@ get_file (int file_descriptor)
   return NULL; // nothing found
 }
 
-/* Closes a file descriptor*/
+//closes a file with the given descriptor or all files if -1 is input (also used in process.c)
 void process_close_file (int file_descriptor)
 {
   struct thread *t = thread_current();
