@@ -17,6 +17,9 @@
 #include "threads/palloc.h"
 #include "threads/thread.h"
 #include "threads/vaddr.h"
+#include "userprog/syscall.h"
+#include "threads/malloc.h"
+#include "userprog/syscall.h"
 
 static thread_func start_process NO_RETURN;
 static bool load (const char *cmdline, void (**eip) (void), void **esp);
@@ -74,11 +77,15 @@ start_process (void *file_name_)
   if_.eflags = FLAG_IF | FLAG_MBS;
   success = load (file_name, &if_.eip, &if_.esp);
 
+  if(success) { thread_current()->cp->load_status = 1; }
+  else { thread_current()->cp->load_status = 2;}
+  sema_up(&thread_current()->cp->load_sema);
+
   /* If load failed, quit. */
   palloc_free_page (file_name);
   if (!success)
     thread_exit ();
-
+  
   /* Start the user process by simulating a return from an
      interrupt, implemented by intr_exit (in
      threads/intr-stubs.S).  Because intr_exit takes all of its
@@ -99,13 +106,26 @@ start_process (void *file_name_)
    This function will be implemented in problem 2-2.  For now, it
    does nothing. */
 int
-process_wait (tid_t child_tid UNUSED)
+process_wait (tid_t child_tid UNUSED) 
 {
-    while (true)
-    {
-
-    }
+  struct child_process* child_process_ptr = find_child_process(child_tid); //finds the process to wait for in memory
+  if (!child_process_ptr) //if invalid return for any reason return immediately with error
+  {
     return -1;
+  }
+  
+  if (child_process_ptr->wait) //if already waiting return immediately with error
+  {
+    return -1;
+  }
+  child_process_ptr->wait = 1; // set wait for child to true
+  while (!child_process_ptr->exit) //while the child has not exited
+  {
+    asm volatile ("" : : : "memory"); //blocks memory accesses from being reordered
+  }
+  int status = child_process_ptr->status;
+  remove_child_process(child_process_ptr); //removes child process from list of children
+  return status; //returns status with which child exited
 }
 
 /* Free the current process's resources. */
@@ -114,6 +134,24 @@ process_exit (void)
 {
   struct thread *cur = thread_current ();
   uint32_t *pd;
+
+  lock_acquire(&lock_filesys);
+  process_close_file(-1);
+  /* check if current thread is an executable if so we will close it */
+  if (cur->executable)
+  {
+    file_close(cur->executable); // from file.h
+  }
+  lock_release(&lock_filesys);
+
+  /* free the list of child processes */
+  remove_all_child_processes();
+
+  if (is_thread_existing(cur->parent))
+  {
+    cur->cp->exit = 1;
+    sema_up(&cur->cp->exit_sema);
+  }
 
   /* Destroy the current process's page directory and switch back
      to the kernel-only page directory. */
@@ -266,6 +304,8 @@ load (const char *file_name, void (**eip) (void), void **esp)
       goto done;
     }
 
+  file_deny_write(file);
+  t->executable = file;
   /* Read and verify executable header. */
   if (file_read (file, &ehdr, sizeof ehdr) != sizeof ehdr
       || memcmp (ehdr.e_ident, "\177ELF\1\1\1", 7)
