@@ -16,20 +16,9 @@
 #define MAX_ARGS 3 //allows for easy modification of max arguments
 
 
-static void syscall_handler (struct intr_frame *);
+static void syscall_handler (struct intr_frame *); //handler for all sys calls
 
-void get_stack_args (struct intr_frame *f, int * args, int num_of_args);
-
-struct lock lock_filesys; //lock to prevent concurrent access of filesystem
-
-struct thread_file
-{
-  struct list_elem file_elem;
-  struct file *file_addr;
-  int file_descriptor;
-};
-
-struct lock lock_filesys;
+struct thread_file * get_file(int); //used to get a thread file
 
 void syscall_init (void) 
 {
@@ -37,161 +26,126 @@ void syscall_init (void)
   intr_register_int (0x30, 3, INTR_ON, syscall_handler, "syscall");
 }
 
+/*
+So validating is a bit weird due to how things are pushed on the stack
+but main thing to note is
+1 arg esp + 1
+2 args esp + 4 and esp + 5 respectively
+3 args esp + 5, esp + 6, and esp + 7
+
+That's why you'll commonly see ptr + some random seeming number as
+they're referring to the location of the pointers to the actual arguments in memory
+If these don't validate for any reason it just kills the process with exit(-1)
+Any returns get stored in frame's eax reg
+*/
 static void
 syscall_handler (struct intr_frame *f UNUSED) //its a handler. It handles syscalls as per the name
 {
-  //confirms that address is within the virtual memory space 
+  //stack pointer
+  int * ptr = f->esp;
+
+  //confirms that address is within the virtual memory space and exists
   //if not exits with status -1
-  check_valid_addr((const void *) f->esp); 
+  if(!validate(ptr)){
+    exit(-1);
+  }
 
-  int args[MAX_ARGS];
-
-  void * phys_page_ptr; //points to location of physical page
-
-  switch(*(int *) f->esp)
+  switch(* ptr)
   {
     case SYS_HALT:
       halt(); //calls provided shutdown_power_off() declared in threads/init.h
       break;
 
     case SYS_EXIT:
-      get_stack_args(f, &args[0], 1); //gets top arg off stack representing exit status
-      exit(args[0]); //exits with that arg (status)
+      //gets and validates top arg off stack representing exit status
+      if(!validate(ptr+1)) exit(-1); 
+
+      exit(*(ptr+1)); //exits with that arg (status)
       break;
 
     case SYS_EXEC:
-      
-      get_stack_args(f, &args[0], 1); //gets the command line argument from stack
-
-      //get page address and confirm that it is a valid address
-      phys_page_ptr = (void *) pagedir_get_page(thread_current()->pagedir, (const void *) args[0]);
-      if (phys_page_ptr == NULL)
-      {
-        exit(-1);
-      }
-      args[0] = (int) phys_page_ptr;
-      
+      //validates pointer to char * and the char * with file name itself
+      if(!validate(ptr+1) || !validate(*(ptr+1))) exit (-1);
       //puts return value in eax register
-      f->eax = exec((const char *) args[0]);
+      f->eax = exec(*(ptr+1));
       break;
 
     case SYS_WAIT:
-      //gets pid of the child process to wait on off the stack
-      get_stack_args(f, &args[0], 1);
+      //validates pid argument of the child process
+      if(!validate(ptr+1)) exit(-1);
       //puts return value in eax
-      f->eax = wait(args[0]);
+      f->eax = wait(*(ptr+1));
       break;
 
     case SYS_CREATE:
-      //gets args for file name and initial file size
-      get_stack_args(f, &args[0], 2);
-      //confirms validity of file name and file size being within user space
-      check_buffer((const void *)args[0], args[1]);
-      //yeah not commenting this bit repeatedly
-      phys_page_ptr = pagedir_get_page(thread_current()->pagedir, (const void *) args[0]);
-        if (phys_page_ptr == NULL)
-        {
-          exit(-1);
-        }
+      //validates the argument pointers along with the ptr + 4 that points to the file name
+      //to avoid name overflow
+      if(!validate(ptr+4) || !validate(ptr+5) || !validate(*(ptr+4))) exit(-1);
       //returns whether file was created to eax
-      f->eax = create((const char *) args[0], (unsigned) args[1]);
+      f->eax = create(*(ptr+4), *(ptr+5));
       break;
 
     case SYS_REMOVE:
-      //gets name of file to be removed
-      get_stack_args(f, &args[0], 1);
-
-      phys_page_ptr = pagedir_get_page(thread_current()->pagedir, (const void *) args[0]);
-        if (phys_page_ptr == NULL)
-        {
-          exit(-1);
-        }
-        args[0] = (int) phys_page_ptr;
+      //if the address of file name to remove and the file name stored are both in user space
+      //we're good to go
+      if(!validate(ptr+1) || !validate(*(ptr+1))) exit(-1);
       //returns to eax whether file was removed
-      f->eax = remove((const char *) args[0]);
+      f->eax = remove(*(ptr+1));
       break;
 
     case SYS_FILESIZE:
-      //gets file descriptor to use
-      get_stack_args(f, &args[0], 1);
+      //validates address pointing to filesize
+      if (!validate(ptr+1)) exit(-1);
 
       //returns size of file with given fd
-      f->eax = filesize(args[0]);
+      f->eax = filesize(*(ptr+1));
       break;
 
     case SYS_READ:
-      //gets arguments for file descriptor, buffer pointer, and size
-      get_stack_args(f, &args[0], 3);
-
-      //confirms that buffer values are valid within user space
-      check_buffer((const void *)args[1], args[2]);
-
-      //oh look this again
-      phys_page_ptr = pagedir_get_page(thread_current()->pagedir, (const void *) args[1]);
-        if (phys_page_ptr == NULL)
-        {
-          exit(-1);
-        }
-        args[1] = (int) phys_page_ptr;
-
+      //validates the file descriptor, buffer, and size pointers while additionally validating what is in
+      //the buffer itself
+      if (!validate(ptr+5) || !validate(ptr+6) || !validate(ptr+7) || !validate(*(ptr+6))) exit(-1);
       //returns to eax either bytes read or -1 if file was unable to be read
-      f->eax = read(args[0], (void *) args[1], (unsigned) args[2]);
+      f->eax=read(*(ptr+5),*(ptr+6),*(ptr+7));
       break;
 
     case SYS_WRITE:
-      //same arguments as read except buff will be a const
-      get_stack_args(f, &args[0], 3);
-      //confirms valid buffer in reserved memory
-      check_buffer((const void *)args[1], args[2]);
-
-      phys_page_ptr = pagedir_get_page(thread_current()->pagedir, (const void *) args[1]);
-        if (phys_page_ptr == NULL)
-        {
-          exit(-1);
-        }
-        args[1] = (int) phys_page_ptr;
-
+      //basically same thing as read
+      if (!validate(ptr+5) || !validate(ptr+6) || !validate(ptr+7)|| !validate(*(ptr+6))) exit(-1);
       //returns to eax the number of bytes written or 0 if none could be
-      f->eax = write(args[0], (const void *)args[1], (unsigned)args[2]);
+      f->eax = write(*(ptr+5),*(ptr+6),*(ptr+7));
       break;
     
     case SYS_SEEK:
-      //gets args for file descriptor of file and position to seek
-      get_stack_args(f, &args[0], 2);
+      //validates the pointers to arguments for fd and position
+      if(!validate(ptr+4) || !validate(ptr+5)) exit(-1);
       //returns nothing. Simply changes position to be read/written next for the given fd
-      seek(args[0], (unsigned)args[1]);
+      seek(*(ptr+4),*(ptr+5));
       break;
       
     case SYS_TELL:
-      //gets file descriptor from stack
-      get_stack_args(f, &args[0], 1);
+      //validates ptr to file descriptor 
+      if(!validate(ptr+1)) exit(-1);
       //returns position for next byte to be read/written from the file with given fd
-      f->eax = tell(args[0]);
+      f->eax = tell(*(ptr+1));
       break;
 
     case SYS_OPEN:
-      //gets name of file to open from stack
-      get_stack_args(f, &args[0], 1);
-      //yay last time seeing this
-      phys_page_ptr = pagedir_get_page(thread_current()->pagedir, (const void *) args[1]);
-        if (phys_page_ptr == NULL)
-        {
-          exit(-1);
-        }
-        args[1] = (int) phys_page_ptr;
+      //valids pointer to char * representing the file name to be opened and the file name itself
+      if(!validate(ptr+1) || !validate(*(ptr+1))) exit(-1);
       
       //returns to eax the file descriptor of the file opened or -1 if not
-      f->eax = open((const char *)args[0]);  // open this file
+      f->eax = open(*(ptr+1));  // open this file
       break;
     
     case SYS_CLOSE:
-      //gets the file descriptor for the file to be closed from stack
-      get_stack_args(f, &args[0], 1);
+      if (!validate(ptr+1)) exit(-1);
       //closes file descriptor fd
-      close(args[0]);
+      close(*(ptr+1));
       break;
       
     default:
+      printf("Invalid System Call number\n");
       exit(-1);
       break;
   }
@@ -204,24 +158,32 @@ void halt(void)
 
 void exit(int status)
 {
-	thread_current()->exit_status = status;
-	printf("%s: exit(%d)\n", thread_current()->name, status);
+
+  struct thread * parent = thread_current()->parent;
+
+	thread_current()->exit_code = status;
+	if(!list_empty(&parent->children)){
+    //gets parent's child struct
+    struct child * child = get_child(thread_current()->tid,parent);
+    //if not null then sets relevant values and wakes parent if needed
+    if(child != NULL){
+      child->ret_val=status;
+      child->used = 1;
+      if(thread_current()->parent->waitedon_child == thread_current()->tid) 
+        sema_up(&thread_current()->parent->child_wait_sema);
+    }
+  }
   thread_exit ();
 }
 
 /* Executes the program with the given file name. */
-pid_t exec(const char * file)
+pid_t exec(const char * cmd_line)
 {
-  /* If a null file is passed in, return a -1. */
-	if(!file)
-	{
-		return -1;
-	}
   lock_acquire(&lock_filesys);
-  /* Get and return the PID of the process that is created. */
-	pid_t child_tid = process_execute(file);
+  /* Get and return the PID (also equivalent to child tid as these are mapped 1:1) of the process that is created. */
+	pid_t child_pid = process_execute(cmd_line);
   lock_release(&lock_filesys);
-	return child_tid;
+	return child_pid;
 }
 //waits for a given pid
 int wait(pid_t pid)
@@ -232,6 +194,9 @@ int wait(pid_t pid)
 //creates a file with provided name and size and returns file status
 bool create(const char *file, unsigned initial_size)
 {
+  //if null file return error
+  if(file == NULL) return -1;
+
   lock_acquire(&lock_filesys);
   bool file_status = filesys_create(file, initial_size);
   lock_release(&lock_filesys);
@@ -241,6 +206,9 @@ bool create(const char *file, unsigned initial_size)
 //removes file with given name and returns whether successful
 bool remove(const char *file)
 {
+  //if null filename, return error
+  if(file == NULL) return -1;
+
   lock_acquire(&lock_filesys);
   bool file_status = filesys_remove(file);
   lock_release(&lock_filesys);
@@ -250,33 +218,18 @@ bool remove(const char *file)
 //returns the size of the file open with the given file descriptor
 int filesize(int fd)
 {
-  //same use as in previous stuff
-  struct list_elem *temp;
+  //gets the file with the given descriptor (can be NULL)
+  struct thread_file * file = get_file(fd);
+  //checks whether file is null in which case no fileent with that descriptor exists so returns error
+  if(file == NULL) return -1;
 
   lock_acquire(&lock_filesys);
-
-  //is the thread has no descriptors, then it can't have a file
-  if (list_empty(&thread_current()->file_descriptors))
-  {
-    lock_release(&lock_filesys);
-    return -1;
-  }
-
-  //checks for a matching file to the file descriptor for this current thread
-  for (temp = list_front(&thread_current()->file_descriptors); temp != NULL; temp = temp->next)
-  {
-      struct thread_file *t = list_entry (temp, struct thread_file, file_elem);
-      if (t->file_descriptor == fd)
-      {
-        lock_release(&lock_filesys);
-        return (int) file_length(t->file_addr);
-      }
-  }
+  //using file_length from file.c, get the length of the file in bytes while making sure no modifications
+  //occur concurrently
+  int length = file_length(file->file_addr); 
 
   lock_release(&lock_filesys);
-
-  /* Return -1 if we can't find the file. */
-  return -1;
+  return length;
 }
 
 /*
@@ -285,41 +238,27 @@ or -1 if the file could not be read (due to a condition other than end of file).
 */
 int read(int fd, void *buffer, unsigned length)
 {
-  struct list_elem *temp;
-
-  lock_acquire(&lock_filesys);
+  unsigned length_read = 0;
 
   //gets keyboard input for a descriptor of 0 which is user input
   if (fd == 0)
   {
-    lock_release(&lock_filesys);
-    return (int) input_getc();
+    while( length_read < length)
+    {
+      *((char *)buffer+length_read) = input_getc();
+      length_read++;
+    }
+    return length_read;
   }
+  
+  //retrieves file, returns error if file is invalid (NULL)
+  struct thread_file * file = get_file(fd);
+  if(file == NULL) return -1;
 
-  //no files, no fun
-  if (fd == 1 || list_empty(&thread_current()->file_descriptors))
-  {
-    lock_release(&lock_filesys);
-    return 0;
-  }
-
-  //checks for the file descriptor in those known to the current thread and reads in the 
-  //bytes of data stored if any and returns amount read
-  for (temp = list_front(&thread_current()->file_descriptors); temp != NULL; temp = temp->next)
-  {
-      struct thread_file *t = list_entry (temp, struct thread_file, file_elem);
-      if (t->file_descriptor == fd)
-      {
-        lock_release(&lock_filesys);
-        int bytes = (int) file_read(t->file_addr, buffer, length);
-        return bytes;
-      }
-  }
-
+  lock_acquire(&lock_filesys);
+  length_read = file_read(file->file_addr, buffer, length);
   lock_release(&lock_filesys);
-
-  //default 
-  return -1;
+  return length_read;
 }
 
 /*
@@ -328,40 +267,24 @@ The return will be the bytes written or 0 if none.
 */
 int write(int fd, const void *buffer, unsigned length)
 {
-  //used for iterating through file descriptors later
-  struct list_elem *temp;
-  //lock to prevent concurrent writes
-  lock_acquire(&lock_filesys);
-
-  //these are behaviors for STDIN and STDOUT/no files
+  
+  //this is behavior for STDOUT. Simply writes to standard output
 	if(fd == 1)
 	{
     putbuf(buffer, length);
-    lock_release(&lock_filesys);
     return length;
 	}
-  if (fd == 0 || list_empty(&thread_current()->file_descriptors))
-  {
-    lock_release(&lock_filesys);
-    return 0;
-  }
 
-  //iterates through the list of file descriptors for the current thread until file descriptor is found
-  //and writes to it if so before releasing lock on file system
-  for (temp = list_front(&thread_current()->file_descriptors); temp != NULL; temp = temp->next)
-  {
-      struct thread_file *t = list_entry (temp, struct thread_file, file_elem);
-      if (t->file_descriptor == fd)
-      {
-        int bytes_written = (int) file_write(t->file_addr, buffer, length);
-        lock_release(&lock_filesys);
-        return bytes_written;
-      }
-  }
-
+  // Get the thread_file matching the fd and returns error if not valid
+  struct thread_file * file = get_file(fd);
+  if(file== NULL)
+    return -1;
+  
+  lock_acquire(&lock_filesys);
+  // write to the file using file_write from file.c
+  int length_written = file_write(file->file_addr,buffer,length);
   lock_release(&lock_filesys);
-  //default behavior stating nothing was written
-  return 0;
+  return length_written;
 }
 
 /*
@@ -370,34 +293,14 @@ int write(int fd, const void *buffer, unsigned length)
 */
 void seek(int fd, unsigned position)
 {
-  /* list element to iterate the list of file descriptors. */
-  struct list_elem *temp;
+  struct thread_file * file = get_file(fd);
+
+  if(file == NULL) return;
 
   lock_acquire(&lock_filesys);
-
-  /* If there are no files to seek through, then we immediately return. */
-  if (list_empty(&thread_current()->file_descriptors))
-  {
-    lock_release(&lock_filesys);
-    return;
-  }
-
-  //checks for a file descriptor matching that of fd and sets the position to that specified if file found
-  for (temp = list_front(&thread_current()->file_descriptors); temp != NULL; temp = temp->next)
-  {
-      struct thread_file *t = list_entry (temp, struct thread_file, file_elem);
-      if (t->file_descriptor == fd)
-      {
-        file_seek(t->file_addr, position);
-        lock_release(&lock_filesys);
-        return;
-      }
-  }
-
+  //uses file.c's file_seek to update position in file
+  file_seek(file->file_addr, position);
   lock_release(&lock_filesys);
-
-  //default if file not found
-  return;
 }
 
 /*
@@ -405,32 +308,15 @@ Returns the position of the next byte to be read or written in open file fd, exp
 */
 unsigned tell(int fd)
 {
-  struct list_elem *temp;
+  struct thread_file * file = get_file(fd);
+
+  if(file == NULL) return -1;
 
   lock_acquire(&lock_filesys);
-
-  //default behavior to release lock and return if nothing is found
-  if (list_empty(&thread_current()->file_descriptors))
-  {
-    lock_release(&lock_filesys);
-    return -1;
-  }
-  
-  //checks for the given file descriptor like others and then finds next byte to be read/written to and returns
-  for (temp = list_front(&thread_current()->file_descriptors); temp != NULL; temp = temp->next)
-  {
-      struct thread_file *t = list_entry (temp, struct thread_file, file_elem);
-      if (t->file_descriptor == fd)
-      {
-        unsigned position = (unsigned) file_tell(t->file_addr);
-        lock_release(&lock_filesys);
-        return position;
-      }
-  }
-
+  //uses file.c's file_tell to find current position in file
+  unsigned position = file_tell(file->file_addr);
   lock_release(&lock_filesys);
-
-  return -1;
+  return position;
 }
 
 /* 
@@ -438,33 +324,25 @@ Closes file descriptor fd. Exiting or terminating a process implicitly closes al
 */
 void close(int fd)
 {
-  struct list_elem *temp;
-
-  lock_acquire(&lock_filesys);
-
-  //no descriptors, no closing
-  if (list_empty(&thread_current()->file_descriptors))
-  {
-    lock_release(&lock_filesys);
+  if (fd == STDIN_FILENO || fd == STDOUT_FILENO)
     return;
-  }
+  
+  // get's the thread_file with the given fd
+  struct thread_file * file = get_file(fd);
 
-  //checks all file descriptors for the current thread and closes the one that matches if any
-  for (temp = list_front(&thread_current()->file_descriptors); temp != NULL; temp = temp->next)
-  {
-      struct thread_file *t = list_entry (temp, struct thread_file, file_elem);
-      if (t->file_descriptor == fd)
-      {
-        file_close(t->file_addr);
-        list_remove(&t->file_elem);
-        lock_release(&lock_filesys);
-        return;
-      }
-  }
-
+  //returns error if file is null
+  if (file == NULL)
+    return -1;
+  
+  lock_acquire(&lock_filesys);
+  // closes file  using the good ol' file.c's predefined function
+  file_close(file->file_addr);
   lock_release(&lock_filesys);
 
-  return;
+  /* Removing the thread file element from the list
+     and freeing memory */
+  list_remove(&file->elem);
+  free(file);
 }
 
 /*
@@ -474,61 +352,47 @@ File descriptors 0 and 1 will not be used as they are reserved for STDIN and STD
 int open(const char *file)
 {
   lock_acquire(&lock_filesys);
-
-  struct file* f = filesys_open(file);
-
-  //if file creation failed for any reason, return and release lock
-  if(f == NULL)
-  {
-    lock_release(&lock_filesys);
-    return -1;
-  }
-
-  //creates a new thread file to hold file information for the current thread and adds the descriptor
-  //to list of those known to current thread
-  struct thread_file *new_file = malloc(sizeof(struct thread_file));
-  new_file->file_addr = f;
-  int fd = thread_current ()->cur_fd;
-  thread_current ()->cur_fd++;
-  new_file->file_descriptor = fd;
-  list_push_front(&thread_current ()->file_descriptors, &new_file->file_elem);
+  struct file * fptr = filesys_open(file);
   lock_release(&lock_filesys);
-  return fd;
+  
+  if (fptr == NULL)    return -1;
+  
+  struct thread_file * tfile = malloc (sizeof(struct thread_file));
+  tfile->fd = ++thread_current()->fd_count;
+  tfile->file_addr = fptr;
+  list_push_front(&thread_current()->file_list,&tfile->elem);
+  
+  return tfile->fd;
 }
 
-/* confirms that the addr is valid and in user space and exits otherwise*/
-void check_valid_addr(const void *ptr_to_check)
+/* confirms that the addr is valid and in user space and exists in directory*/
+bool validate( void * ptr_to_check)
 {
   //does what main description says
-  if(!is_user_vaddr(ptr_to_check) || ptr_to_check == NULL || ptr_to_check < (void *) 0x08048000)
+  if(is_user_vaddr(ptr_to_check) && pagedir_get_page(thread_current()->pagedir,ptr_to_check) != NULL)
 	{
-    //exits the thing and releases resources
-    exit(-1);
+    return true;
 	}
+  else return false;
 }
 
-//confirms that all buffer values also remain in user space such that no argument overflows
-void check_buffer(const void *buff, unsigned size)
+/* 
+Does what it says and gets the file with the given file descriptor. Moved here 
+because it is used so so many other places
+*/
+struct thread_file * get_file (int fd)
 {
-  unsigned i;
-  char *ptr  = (char * )buff;
-  for (i = 0; i < size; i++)
-    {
-      check_valid_addr((const void *) ptr);
-      ptr++;
-    }
+  struct thread * curr = thread_current();
+  struct list_elem * e;
+
+  for (e=list_begin(&curr->file_list);
+    e != list_end (&curr->file_list); e = list_next(e))
+  {
+    struct thread_file * file = list_entry(e, struct thread_file,elem);
+    if (file->fd == fd)
+      return file;
+  } 
+
+  return NULL;
 }
 
-/* Get up to three arguments from a programs stack (they directly follow the system
-   call argument). */
-void get_stack_args(struct intr_frame *f, int *args, int num_of_args)
-{
-  int i;
-  int *ptr;
-  for (i = 0; i < num_of_args; i++)
-    {
-      ptr = (int *) f->esp + i + 1;
-      check_valid_addr((const void *) ptr);
-      args[i] = *ptr;
-    }
-}

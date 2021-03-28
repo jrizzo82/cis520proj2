@@ -84,20 +84,45 @@ struct thread
     uint8_t *stack;                     /* Saved stack pointer. */
     int priority;                       /* Priority. */
     struct list_elem allelem;           /* List element for all threads list. */
-
+    
     /* Shared between thread.c and synch.c. */
     struct list_elem elem;              /* List element. */
-
+    
+#ifdef USERPROG
     /* Owned by userprog/process.c. */
-    uint32_t *pagedir;                 /* Page directory. */
-    struct list child_process_list;    /* List containing each child process. */
-    int exit_status;                   /* Stores the status upon exit */
-    struct list_elem child_elem;       /* Used to keep track of the element in the child list. */
-    struct semaphore being_waited_on;  /* Used to put a parent thread to sleep when it needs to wait for a child. */
-    struct list file_descriptors;      //does what it suggests and holds file descriptors for the thread
-    int cur_fd;                        //the next file descriptor to be used
+    uint32_t *pagedir;                  /* Page directory. */
+#endif
 
-    /* Owned by thread.c. */
+	 //pretty self explanatory.
+    int exit_code;
+    
+    //maps fds to files 
+    struct list file_list;
+    
+    //keeps track of the fd value
+    int fd_count;
+    
+    //child processes of the thread
+    struct list children;
+    
+    //holds reference to parent thread. Kinda obvious honestly
+    struct thread * parent;
+    
+    //flag for a child thread succesfully loading
+    bool loaded_flag;
+
+    //semaphore to make parent wait for child execution to to successfully start
+    struct semaphore loaded_sema;
+    
+    //points to executable file
+    struct file * file;
+    
+    /* Used when a thread waits for a child */
+    struct semaphore child_wait_sema;
+
+    //child being waited on if any
+    tid_t waitedon_child;
+    
     unsigned magic;                     /* Detects stack overflow. */
   };
 
@@ -105,7 +130,7 @@ struct thread
    If true, use multi-level feedback queue scheduler.
    Controlled by kernel command-line option "-o mlfqs". */
 extern bool thread_mlfqs;
-
+int load_avg;
 void thread_init (void);
 void thread_start (void);
 
@@ -136,5 +161,4 @@ int thread_get_nice (void);
 void thread_set_nice (int);
 int thread_get_recent_cpu (void);
 int thread_get_load_avg (void);
-
 #endif /* threads/thread.h */
