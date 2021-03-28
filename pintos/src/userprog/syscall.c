@@ -23,19 +23,16 @@ bool lock_initialized = false;
 
 struct thread_file
 {
-    struct list_elem file_elem;
-    struct file *file_addr;
-    int file_descriptor;
-};
-
- 
+  struct list_elem file_elem;
+  struct file *file_addr;
+  int file_descriptor;
+}
 
 void
 syscall_init (void) 
 {
   intr_register_int (0x30, 3, INTR_ON, syscall_handler, "syscall");
 }
-
 static void
 syscall_handler (struct intr_frame *f UNUSED) //its a handler. It handles syscalls as per the name
 {
@@ -277,7 +274,7 @@ int read(int fd, void *buffer, unsigned length)
   
   /* read from file */
   lock_acquire(&lock_filesys);
-  struct file *file_ptr = get_file(filedes);
+  struct file *file_ptr = get_file(fd);
   if (!file_ptr)
   {
     lock_release(&lock_filesys);
@@ -290,14 +287,14 @@ int read(int fd, void *buffer, unsigned length)
 
 int write (int fd, const void *buffer, unsigned size)
 {
-    if (byte_size <= 0)
+    if (size <= 0)
     {
-      return byte_size;
+      return size;
     }
     if (fd == 1)
     {
-      putbuf (buffer, byte_size); // from stdio.h
-      return byte_size;
+      putbuf (buffer, size); // from stdio.h
+      return size;
     }
     
     // start writing to file
@@ -306,9 +303,9 @@ int write (int fd, const void *buffer, unsigned size)
     if (!file_ptr)
     {
       lock_release(&lock_filesys);
-      return ERROR;
+      return -1;
     }
-    int bytes_written = file_write(file_ptr, buffer, byte_size); // file.h
+    int bytes_written = file_write(file_ptr, buffer, size); // file.h
     lock_release (&lock_filesys);
     return bytes_written;
 }
@@ -455,7 +452,7 @@ int add_file (struct file *file_name)
   process_file_ptr->file = file_name;
   process_file_ptr->fd = thread_current()->fd; //gives file the current open descriptor
   thread_current()->fd++; //increments file descriptor to prevent duplicates (this should start at 2)
-  list_push_back(&thread_current()->file_list, &process_file_ptr->elem); //adds to thread's file list
+  list_push_back(&thread_current()->files, &process_file_ptr->elem); //adds to thread's file list
   return process_file_ptr->fd;
   
 }
@@ -465,9 +462,9 @@ struct file* get_file (int fd)
 {
   struct thread *t = thread_current();
   struct list_elem* next;
-  struct list_elem* e = list_begin(&t->file_list);
+  struct list_elem* e = list_begin(&t->files);
   //iterates through and searches for file descriptor matching file_descriptor and returns that file
-  for (; e != list_end(&t->file_list); e = next)
+  for (; e != list_end(&t->files); e = next)
   {
     next = list_next(e);
     struct process_file *process_file_ptr = list_entry(e, struct process_file, elem);
@@ -484,9 +481,9 @@ void process_close_file (int file_descriptor)
 {
   struct thread *t = thread_current();
   struct list_elem *next;
-  struct list_elem *e = list_begin(&t->file_list);
+  struct list_elem *e = list_begin(&t->files);
   //iterates through file list and closes/frees space allocated for process file if matching file descriptor, else closes all
-  for (;e != list_end(&t->file_list); e = next)
+  for (;e != list_end(&t->files); e = next)
   {
     next = list_next(e);
     struct process_file *process_file_ptr = list_entry (e, struct process_file, elem);
