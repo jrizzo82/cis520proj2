@@ -10,8 +10,7 @@ typedef int pid_t;
 
 void syscall_init (void);
 
-//arguably this should be in thread.h but I got tired of going back and forth between files
-
+struct lock lock_filesys; //used for what it sounds like so
 
 void halt (void) NO_RETURN;
 void exit (int status) NO_RETURN;

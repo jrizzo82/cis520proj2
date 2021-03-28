@@ -28,7 +28,7 @@ struct thread_file
   int file_descriptor;
 }
 
-struct lock lock_filesys; //used for what it sounds like so 
+ 
 
 void
 syscall_init (void) 
@@ -68,10 +68,10 @@ syscall_handler (struct intr_frame *f UNUSED) //its a handler. It handles syscal
       
       get_stack_arguments(f, &args[0], 1); //gets the command line argument from stack
       //confirms validity of command line input
-      check_str((const void *)arg[0]);
+      check_str((const void *)args[0]);
 
       //get page
-      args[0] = getpage_ptr((const void *)arg[0]);
+      args[0] = getpage_ptr((const void *)args[0]);
       
       //puts return value in eax register
       f->eax = exec((const char *) args[0]);
@@ -79,9 +79,9 @@ syscall_handler (struct intr_frame *f UNUSED) //its a handler. It handles syscal
 
     case SYS_WAIT:
       //gets pid of the child process to wait on off the stack
-      get_stack_args(f, &arg[0], 1);
+      get_stack_args(f, &args[0], 1);
       //puts return value in eax
-      f->eax = wait(arg[0]);
+      f->eax = wait(args[0]);
       break;
 
     case SYS_CREATE:
@@ -90,7 +90,7 @@ syscall_handler (struct intr_frame *f UNUSED) //its a handler. It handles syscal
       //confirms validity of file name
       check_str((const void *)args[0]);
       //yeah not commenting this bit anymore
-      args[0] = getpage_ptr((const void *)arg[0]);
+      args[0] = getpage_ptr((const void *)args[0]);
       //returns whether file was created to eax
       f->eax = create((const char *) args[0], (unsigned) args[1]);
       break;
@@ -101,7 +101,7 @@ syscall_handler (struct intr_frame *f UNUSED) //its a handler. It handles syscal
       //confirms valid filename
       check_str((const void *)args[0]);
 
-      args[0] = getpage_ptr((const void *)arg[0]);
+      args[0] = getpage_ptr((const void *)args[0]);
       //returns to eax whether file was removed
       f->eax = remove((const char *) args[0]);
       break;
@@ -121,7 +121,7 @@ syscall_handler (struct intr_frame *f UNUSED) //its a handler. It handles syscal
       check_buffer((const void *)args[1], args[2]);
 
       
-      args[1] = getpage_ptr((const void *)arg[1]);
+      args[1] = getpage_ptr((const void *)args[1]);
 
       //returns to eax either bytes read or -1 if file was unable to be read
       f->eax = read(args[0], (void *) args[1], (unsigned) args[2]);
@@ -133,7 +133,7 @@ syscall_handler (struct intr_frame *f UNUSED) //its a handler. It handles syscal
       //confirms valid buffer in reserved memory
       check_buffer((void *)args[1], args[2]);
 
-      args[1] = getpage_ptr((const void *)arg[1]);
+      args[1] = getpage_ptr((const void *)args[1]);
 
       //returns to eax the number of bytes written or 0 if none could be
       f->eax = write(args[0], (const void *)args[1], (unsigned)args[2]);
@@ -141,36 +141,36 @@ syscall_handler (struct intr_frame *f UNUSED) //its a handler. It handles syscal
     
     case SYS_SEEK:
       //gets args for file descriptor of file and position to seek
-      get_args(f, &arg[0], 2);
+      get_args(f, &args[0], 2);
       //returns nothing. Simply changes position to be read/written next for the given fd
-      seek(arg[0], (unsigned)arg[1]);
+      seek(args0], (unsigned)args[1]);
       break;
       
     case SYS_TELL:
       //gets file descriptor from stack
-      get_args(f, &arg[0], 1);
+      get_args(f, &args[0], 1);
       //returns position for next byte to be read/written from the file with given fd
-      f->eax = tell(arg[0]);
+      f->eax = tell(args[0]);
       break;
 
     case SYS_OPEN:
       //gets name of file to open from stack
-      get_args(f, &arg[0], 1);
+      get_args(f, &args[0], 1);
       
       //check if the file name is valid whatsoever
-       check_str((const void*)arg[0]);
+       check_str((const void*)args[0]);
      
-      arg[0] = getpage_ptr((const void *)arg[0]);
+      args[0] = getpage_ptr((const void *)args[0]);
       
       //returns to eax the file descriptor of the file opened or -1 if not
-      f->eax = open((const char *)arg[0]);  // open this file
+      f->eax = open((const char *)args[0]);  // open this file
       break;
     
     case SYS_CLOSE:
       //gets the file descriptor for the file to be closed from stack
-      get_args (f, &arg[0], 1);
+      get_args (f, &args[0], 1);
       //closes file descriptor fd
-      close(arg[0]);
+      close(args[0]);
       break;
       
     default:

@@ -5,7 +5,7 @@
 #include <list.h>
 #include <stdint.h>
 //#include "userprog/syscall.h"
-#include <synch.h>
+#include "synch.h"
 
 struct child_process {
     int pid;
