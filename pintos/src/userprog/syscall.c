@@ -23,10 +23,10 @@ bool lock_initialized = false;
 
 struct thread_file
 {
-  struct list_elem file_elem;
-  struct file *file_addr;
-  int file_descriptor;
-}
+    struct list_elem file_elem;
+    struct file *file_addr;
+    int file_descriptor;
+};
 
  
 
@@ -143,7 +143,7 @@ syscall_handler (struct intr_frame *f UNUSED) //its a handler. It handles syscal
       //gets args for file descriptor of file and position to seek
       get_args(f, &args[0], 2);
       //returns nothing. Simply changes position to be read/written next for the given fd
-      seek(args0], (unsigned)args[1]);
+      seek(args[0], (unsigned)args[1]);
       break;
       
     case SYS_TELL:
