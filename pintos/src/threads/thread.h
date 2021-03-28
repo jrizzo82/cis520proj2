@@ -4,7 +4,19 @@
 #include <debug.h>
 #include <list.h>
 #include <stdint.h>
-#include "userprog/syscall.h"
+//#include "userprog/syscall.h"
+#include <synch.h>
+
+struct child_process {
+    int pid;
+    int load_status;
+    int wait;
+    int exit;
+    int status;
+    struct semaphore load_sema;
+    struct semaphore exit_sema;
+    struct list_elem elem;
+};
 
 /* States in a thread's life cycle. */
 enum thread_status

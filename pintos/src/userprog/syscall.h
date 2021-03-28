@@ -11,16 +11,7 @@ typedef int pid_t;
 void syscall_init (void);
 
 //arguably this should be in thread.h but I got tired of going back and forth between files
-struct child_process {
-  int pid;
-  int load_status;
-  int wait;
-  int exit;
-  int status;
-  struct semaphore load_sema;
-  struct semaphore exit_sema;
-  struct list_elem elem;
-};
+
 
 void halt (void) NO_RETURN;
 void exit (int status) NO_RETURN;

@@ -81,7 +81,7 @@ syscall_handler (struct intr_frame *f UNUSED) //its a handler. It handles syscal
       //gets pid of the child process to wait on off the stack
       get_stack_args(f, &arg[0], 1);
       //puts return value in eax
-      f->eax = syscall_wait(arg[0]);
+      f->eax = wait(arg[0]);
       break;
 
     case SYS_CREATE:
@@ -163,7 +163,7 @@ syscall_handler (struct intr_frame *f UNUSED) //its a handler. It handles syscal
       arg[0] = getpage_ptr((const void *)arg[0]);
       
       //returns to eax the file descriptor of the file opened or -1 if not
-      f->eax = syscall_open((const char *)arg[0]);  // open this file
+      f->eax = open((const char *)arg[0]);  // open this file
       break;
     
     case SYS_CLOSE:
