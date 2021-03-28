@@ -17,8 +17,6 @@
 #include "threads/palloc.h"
 #include "threads/thread.h"
 #include "threads/vaddr.h"
-#include "userprog/syscall.h"
-#include "threads/malloc.h"
 
 static thread_func start_process NO_RETURN;
 static bool load (const char *cmdline, void (**eip) (void), void **esp);
@@ -76,10 +74,6 @@ start_process (void *file_name_)
   if_.eflags = FLAG_IF | FLAG_MBS;
   success = load (file_name, &if_.eip, &if_.esp);
 
-  if(success) { thread_current()->cp->load_status = 1; }
-  else { thread_current()->cp->load_status = 2;}
-  sema_up(&thread_current()->cp->load_sema);
-
   /* If load failed, quit. */
   palloc_free_page (file_name);
   if (!success)
@@ -95,36 +89,45 @@ start_process (void *file_name_)
   NOT_REACHED ();
 }
 
-/* Waits for thread TID to die and returns its exit status.  If
-   it was terminated by the kernel (i.e. killed due to an
-   exception), returns -1.  If TID is invalid or if it was not a
-   child of the calling process, or if process_wait() has already
-   been successfully called for the given TID, returns -1
-   immediately, without waiting.
-
-   This function will be implemented in problem 2-2.  For now, it
-   does nothing. */
-int
-process_wait (tid_t child_tid UNUSED) 
+int process_wait (tid_t child_tid )
 {
-  struct child_process* child_process_ptr = find_child_process(child_tid); //finds the process to wait for in memory
-  if (!child_process_ptr) //if invalid return for any reason return immediately with error
+  //thread being waited on
+  struct thread *child_thread = NULL;
+
+  //used to iterate through children
+  struct list_elem *temp;
+
+  //if empty list, obviously can't have children
+  if(list_empty(&thread_current()->child_process_list))
   {
     return -1;
   }
-  
-  if (child_process_ptr->wait) //if already waiting return immediately with error
+
+  //checks list of children
+  for (temp = list_front(&thread_current()->child_process_list); temp != NULL; temp = temp->next)
+  {
+      struct thread *t = list_entry (temp, struct thread, child_elem);
+      if (t->tid == child_tid)
+      {
+        child_thread = t;
+        break;
+      }
+  }
+
+  //if null, do not wait
+  if(child_thread == NULL)
   {
     return -1;
   }
-  child_process_ptr->wait = 1; // set wait for child to true
-  while (!child_process_ptr->exit) //while the child has not exited
-  {
-    asm volatile ("" : : : "memory"); //blocks memory accesses from being reordered
-  }
-  int status = child_process_ptr->status;
-  remove_child_process(child_process_ptr); //removes child process from list of children
-  return status; //returns status with which child exited
+
+  //remove child from list so no repeated waits on same child
+  list_remove(&child_thread->child_elem);
+
+  //sema will only go down once child is done being waited on
+  sema_down(&child_thread->being_waited_on);
+
+  //return exit status of dead child
+  return child_thread->exit_status;
 }
 
 /* Free the current process's resources. */
@@ -133,24 +136,6 @@ process_exit (void)
 {
   struct thread *cur = thread_current ();
   uint32_t *pd;
-
-  lock_acquire(&lock_filesys);
-  process_close_file(-1);
-  /* check if current thread is an executable if so we will close it */
-  if (cur->executable)
-  {
-    file_close(cur->executable); // from file.h
-  }
-  lock_release(&lock_filesys);
-
-  /* free the list of child processes */
-  remove_all_child_processes();
-
-  if (is_thread_existing(cur->parent))
-  {
-    cur->cp->exit = 1;
-    sema_up(&cur->cp->exit_sema);
-  }
 
   /* Destroy the current process's page directory and switch back
      to the kernel-only page directory. */
@@ -277,24 +262,24 @@ load (const char *file_name, void (**eip) (void), void **esp)
   process_activate ();
 
   /* For use in the string tokenizer below... */
-  char* token, * save_ptr;
+  char *token, *save_ptr;
   /* List of all command line arguments. 25 is a somewhat arbitrary limit,
      informed by the 128 byte pintos command line limit. */
-  char* argv[25];
+  char *argv[25];
   /* The number of arguments passed in on the command line (includes the program name),
      so argc will always be at least 1. */
   int argc = 0;
 
   /* Tokenize the command line string with a " " (space) as a delimeter. */
-  for (token = strtok_r((char*)file_name, " ", &save_ptr); token != NULL;
-      token = strtok_r(NULL, " ", &save_ptr))
+  for(token = strtok_r((char *)file_name, " ", &save_ptr); token != NULL;
+    token = strtok_r(NULL, " ", &save_ptr))
   {
-      /* Add token to the array of command line arguments. */
-      argv[argc] = token;
-      argc++; /* Increment the number of args */
+    /* Add token to the array of command line arguments. */
+    argv[argc] = token;
+    argc++; /* Increment the number of args */
   }
-  
-  /* Open executable file.  Pass only the program name. */
+
+  /* Open executable file. Pass only the program name. */
   file = filesys_open (argv[0]);
   if (file == NULL)
     {
@@ -303,8 +288,6 @@ load (const char *file_name, void (**eip) (void), void **esp)
       goto done;
     }
 
-  file_deny_write(file);
-  t->executable = file;
   /* Read and verify executable header. */
   if (file_read (file, &ehdr, sizeof ehdr) != sizeof ehdr
       || memcmp (ehdr.e_ident, "\177ELF\1\1\1", 7)
@@ -388,9 +371,14 @@ load (const char *file_name, void (**eip) (void), void **esp)
   success = true;
 
  done:
-  /* We arrive here whether the load is successful or not. */
-  file_close (file);
-  return success;
+
+   /* Of the load was successful, then we must ensure that it is not writen to.
+      Writing to open executables has unpredictable results. Otherwise, close the file.  */
+   if (success)
+     file_deny_write(file);
+   else
+     file_close (file);
+   return success; /* In either case, return whether or not the executable was loaded correctly.  */
 }
 
 /* load() helpers. */

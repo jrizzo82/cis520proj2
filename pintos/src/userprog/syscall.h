@@ -3,40 +3,30 @@
 
 #include <stdbool.h>
 #include <debug.h>
-#include "threads/synch.h"
-#include "threads/thread.h"
 
 typedef int pid_t;
 
 void syscall_init (void);
 
-struct lock lock_filesys; //used for what it sounds like so
-
+/* Projects 2 and later. */
 void halt (void) NO_RETURN;
 void exit (int status) NO_RETURN;
-pid_t exec (const char *cmd_line);
-int wait (pid_t pid);
+pid_t exec (const char *file);
+int wait (pid_t);
 bool create (const char *file, unsigned initial_size);
 bool remove (const char *file);
 int open (const char *file);
-int read (int fd, void *buffer, unsigned size);
-int write (int fd, const void *buffer, unsigned size);
+int filesize (int fd);
+int read (int fd, void *buffer, unsigned length);
+int write (int fd, const void *buffer, unsigned length);
 void seek (int fd, unsigned position);
 unsigned tell (int fd);
 void close (int fd);
 
-/* Checks the passed-in pointer to ensure that it is in valid user memory. */
+/* Ensures that a given pointer is in valid user memory. */
 void check_valid_addr (const void *ptr);
 
-/* Checks the passed-in buffer to ensure that each memory address is in valid user space. */
+/* Ensures that each memory address in a given buffer is in valid user space. */
 void check_buffer (const void *buff, unsigned size);
-struct child_process* find_child_process (int pid);
-void remove_child_process (struct child_process *child);
-void remove_all_child_processes (void);
-
-/*Different ways to handle files*/
-int add_file (struct file *file_name);
-int filesize(int fd);
-struct file* get_file(int fd);
 
 #endif /* userprog/syscall.h */

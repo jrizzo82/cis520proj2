@@ -4,19 +4,7 @@
 #include <debug.h>
 #include <list.h>
 #include <stdint.h>
-//#include "userprog/syscall.h"
 #include "synch.h"
-
-struct child_process {
-    int pid;
-    int load_status;
-    int wait;
-    int exit;
-    int status;
-    struct semaphore load_sema;
-    struct semaphore exit_sema;
-    struct list_elem elem;
-};
 
 /* States in a thread's life cycle. */
 enum thread_status
@@ -38,13 +26,11 @@ typedef int tid_t;
 #define PRI_MAX 63                      /* Highest priority. */
 
 /* A kernel thread or user process.
-
    Each thread structure is stored in its own 4 kB page.  The
    thread structure itself sits at the very bottom of the page
    (at offset 0).  The rest of the page is reserved for the
    thread's kernel stack, which grows downward from the top of
    the page (at offset 4 kB).  Here's an illustration:
-
         4 kB +---------------------------------+
              |          kernel stack           |
              |                |                |
@@ -66,22 +52,18 @@ typedef int tid_t;
              |               name              |
              |              status             |
         0 kB +---------------------------------+
-
    The upshot of this is twofold:
-
       1. First, `struct thread' must not be allowed to grow too
          big.  If it does, then there will not be enough room for
          the kernel stack.  Our base `struct thread' is only a
          few bytes in size.  It probably should stay well under 1
          kB.
-
       2. Second, kernel stacks must not be allowed to grow too
          large.  If a stack overflows, it will corrupt the thread
          state.  Thus, kernel functions should not allocate large
          structures or arrays as non-static local variables.  Use
          dynamic allocation with malloc() or palloc_get_page()
          instead.
-
    The first symptom of either of these problems will probably be
    an assertion failure in thread_current(), which checks that
    the `magic' member of the running thread's `struct thread' is
@@ -106,24 +88,17 @@ struct thread
     /* Shared between thread.c and synch.c. */
     struct list_elem elem;              /* List element. */
 
-#ifdef USERPROG
     /* Owned by userprog/process.c. */
-    uint32_t *pagedir;                  /* Page directory. */
-#endif
+    uint32_t *pagedir;                 /* Page directory. */
+    struct list child_process_list;    /* List containing each child process. */
+    int exit_status;                   /* Stores the status upon exit */
+    struct list_elem child_elem;       /* Used to keep track of the element in the child list. */
+    struct semaphore being_waited_on;  /* Used to put a parent thread to sleep when it needs to wait for a child. */
+    struct list file_descriptors;      //does what it suggests and holds file descriptors for the thread
+    int cur_fd;                        //the next file descriptor to be used
 
     /* Owned by thread.c. */
     unsigned magic;                     /* Detects stack overflow. */
-
-    struct list files;
-    int fd;
-
-    struct list child_list;
-    tid_t parent; //id of parent
-
-    struct child_process* cp;
-    struct file* executable;
-    struct list lock_list;
-
   };
 
 /* If false (default), use round-robin scheduler.
@@ -162,7 +137,4 @@ void thread_set_nice (int);
 int thread_get_recent_cpu (void);
 int thread_get_load_avg (void);
 
-int thread_functioning(int pid);
-struct child_process* add_child_process(int pid);
-void thread_release_locks(void);
 #endif /* threads/thread.h */
