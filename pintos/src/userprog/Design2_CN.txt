@@ -173,6 +173,11 @@ provided file.c functions to read/write respectively before releasing the lock.
 >> for a system call that only copies 2 bytes of data?  Is there room
 >> for improvement in these numbers, and how much?
 
+In the case of the first check getting the head of a page then the least is one inspection while
+the max would occur if the data is not continguous in memory in which case all addresses could potentially need checked,
+resulting in 4096 checks.
+
+Likewise for 2 bytes, the least will be 1 and the max will be 2.
 >> B5: Briefly describe your implementation of the "wait" system call
 >> and how it interacts with process termination.
 Well the wait call itself does practically nothing besides call process_wait where most of the work is done.

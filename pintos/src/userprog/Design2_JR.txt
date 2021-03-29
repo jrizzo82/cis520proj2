@@ -23,6 +23,7 @@ Connor Neil
 
 https://github.com/ChristianJHughes/pintos-project2
 https://github.com/st2092/pintos-user-programs
+https://github.com/zaheersm/pintOS
 
 			   ARGUMENT PASSING
 			   ================
@@ -41,11 +42,13 @@ None
 >> you arrange for the elements of argv[] to be in the right order?
 >> How do you avoid overflowing the stack page?
 
-A call to strtok_r tokenizes the arguments, and a for loop iterates through each one.
-The args are then stored in the argv array. The first element of argv contains the program
-name, with each passed argument filling the remainder of the array. The arguments are then
-passed to the stack. The size of argv is limited to 25 elements to avoid overflowing the stack.
+A call to strtok_r tokenizes the arguments with a delimter of " ", and a for loop iterates through each one.
+The size of argv is set the size of 2 char pointer. If argc get larger than the size of argv, argv
+is doubled and reallocated. The args are stored in the argv array. The args are added in reverse order
+so the stack pointer will be closer to arg 1.
 
+Stack overflow is avoided by limiting the number of arguments to 64 and freeing argv and returning
+if the number is exceeded.
 ---- RATIONALE ----
 
 >> A3: Why does Pintos implement strtok_r() but not strtok()?
@@ -70,14 +73,77 @@ them rather than needing additional code in the kernel for error checking.
 >> `struct' member, global or static variable, `typedef', or
 >> enumeration.  Identify the purpose of each in 25 words or less.
 
+in process.c:
+struct child * get_child(tid_t,struct thread *);
+Added for the purposes of getting the child of a process(thread) for use in syscall.c mainly
+and relevant functions within process.c itself such as process_execute and process_wait
+
+in process.h
+struct child 
+{
+  tid_t id;
+  int ret_val;
+  int used;
+  struct list_elem elem;
+};
+
+This struct holds information about a child process for use within process.c when a child
+returns to send values to parent
+
+
+in thread.h:
+
+modifications to struct thread
+
+int exit_code; //is basically exactly what it says
+
+struct list file_list //list of the open files a process has and maps descriptors to files essentially
+
+int fd_count //used to give fds to new files
+
+struct list children //all child processes of a thread using child struct in process.h
+
+struct thread * parent //holds reference to parent thread.
+
+bool loaded_flag //flag for a child thread loading successfully
+
+struct semaphore loaded_sema //semaphore to be used to force a parent to wait on its child to start execution successfully
+
+struct file * file //holds reference to an executable file
+
+struct semaphore child_wait_sema //Used to force a parent to wait on its child
+
+tid_t waitedon_child //holds tid(pid) of the child being waited on.
+
+in syscall.h
+
+struct thread_file
+{
+  struct list_elem elem;
+  struct file * file_addr;
+  int fd;
+};
+
+This represents a file known to a thread and maps the file descriptors to the relevant address pointers.
+
+
+struct lock lock_filesys; //Lock to avoid concurrent access in the file system.
+
 >> B2: Describe how file descriptors are associated with open files.
 >> Are file descriptors unique within the entire OS or just within a
 >> single process?
+
+A thread has its own thread_file elements and fd_count which increments for each open call.
+These file descriptors are mapped through a thread_file and added to the list.
 
 ---- ALGORITHMS ----
 
 >> B3: Describe your code for reading and writing user data from the
 >> kernel.
+
+STDIN handles reads and STDOUT handles writes. We get the file pointers from the thread_file
+of the current thread. If valid, it acquires the lock_filesys, performs its read and writes,
+then releases the lock.
 
 >> B4: Suppose a system call causes a full page (4,096 bytes) of data
 >> to be copied from user space into the kernel.  What is the least
@@ -86,8 +152,15 @@ them rather than needing additional code in the kernel for error checking.
 >> for a system call that only copies 2 bytes of data?  Is there room
 >> for improvement in these numbers, and how much?
 
+
+
 >> B5: Briefly describe your implementation of the "wait" system call
 >> and how it interacts with process termination.
+
+The wait call calls process_wait, which gets a child element from the current thread.
+The waitedon_child is set to the cild tid and the parent waits for the child to exit, 
+while it blocks on a semaphore. When the child tid equals 1, it is removed from the list 
+and freed, and it's return value is returned.
 
 >> B6: Any access to user program memory at a user-specified address
 >> can fail due to a bad pointer value.  Such accesses must cause the
@@ -103,12 +176,21 @@ them rather than needing additional code in the kernel for error checking.
 >> paragraphs, describe the strategy or strategies you adopted for
 >> managing these issues.  Give an example.
 
+We ensured that esp exists in the page_dir and is less than physbase.
+If a call to the function returns false, meaning it's invalid, we call exit(-1)
+killing the process.
+
 ---- SYNCHRONIZATION ----
 
 >> B7: The "exec" system call returns -1 if loading the new executable
 >> fails, so it cannot return before the new executable has completed
 >> loading.  How does your code ensure this?  How is the load
 >> success/failure status passed back to the thread that calls "exec"?
+
+We used a semphore and a boolean flag. The semaphore is downed when a new thread is
+created. When the process is executed, the flag's value is determined by wheter the call
+to load was successful or not. The parent checks checks the flag value and passes back -1
+if the value was false, or it returns the id of the created thread if true.
 
 >> B8: Consider parent process P with child process C.  How do you
 >> ensure proper synchronization and avoid race conditions when P
@@ -117,16 +199,39 @@ them rather than needing additional code in the kernel for error checking.
 >> terminates without waiting, before C exits?  After C exits?  Are
 >> there any special cases?
 
+P calls wait(C) before C exits:
+P sets the value of waitedon_child. If it is 0, 
+it will down the child_wait_sema and wait. After exiting, child->used is set to one 
+and child->ret is set to its exit code. The child then checks the value of waitedon_child,
+and if it matches its own it wakes the parent with the child_wait_sema.
+
+P calls wait(C) after C exits:
+In this case, used will be set to 1 and the parent will have the child's return value,
+and the parent will simply return that value.
+
+P terminates without waiting, before C exits:
+The child will see the empty list and exit.
+
+P terminates without waiting, after C exits:
+The parent frees the child list.
+
 ---- RATIONALE ----
 
 >> B9: Why did you choose to implement access to user memory from the
 >> kernel in the way that you did?
 
+Lots of trial an error, and we think this is the simplest implementation.
+
 >> B10: What advantages or disadvantages can you see to your design
 >> for file descriptors?
 
+Simplicity is a plus, however the file descriptor counter never decrements so resources
+cannot be freed based on it's value.
+
 >> B11: The default tid_t to pid_t mapping is the identity mapping.
 >> If you changed it, what advantages are there to your approach?
+
+We did not change this.
 
 			   SURVEY QUESTIONS
 			   ================
@@ -151,3 +256,4 @@ the quarter.
 >> students, either for future quarters or the remaining projects?
 
 >> Any other comments?
+
